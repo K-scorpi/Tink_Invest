@@ -3,42 +3,81 @@ from sec import token
 
 TOKEN = token
 
-def get_account_balance(token: str):
-    with Client(token) as client:
-        try:
-            # Получение списка счетов
+class AccountManager:
+    def __init__(self, token: str):
+        self.token = token
+        self.total_balance = 0.0
+
+    def get_accounts(self):
+        """Получение списка счетов."""
+        with Client(self.token) as client:
             accounts = client.users.get_accounts().accounts
-            if not accounts:
-                print("Счета не найдены.")
-                return
-            
-            # Переменная для накопления общей суммы по всем счетам
-            total_all_accounts = 0.0
-            
-            for account in accounts:
-                print(f"Счет: {account.id}, тип: {account.type}")
-                
-                # Получение портфеля и позиций для расчета баланса по каждому счету
-                portfolio = client.operations.get_portfolio(account_id=account.id)
-                
-                total_balance = 0.0
-                
-                # Суммируем стоимость всех позиций в портфеле
-                for position in portfolio.positions:
-                    market_value = position.current_price
-                    if market_value:
-                        position_value = (market_value.units + market_value.nano / 1e9) * position.quantity.units
-                        total_balance += position_value
+            return accounts
 
-                # Добавляем баланс текущего счета к общей сумме по всем счетам
-                total_all_accounts += total_balance
-                print(f"Баланс счета {account.id}: {total_balance:.2f} RUB")
-            
-            # Вывод общей суммы по всем счетам
-            print(f"Общая сумма по всем счетам: {total_all_accounts:.2f} RUB")
+    def get_portfolio(self, account_id):
+        """Получение портфеля для конкретного счета."""
+        with Client(self.token) as client:
+            portfolio = client.operations.get_portfolio(account_id=account_id)
+            return portfolio
+
+    def calculate_balance(self, portfolio):
+        """Подсчет общего баланса по портфелю."""
+        total_balance = 0.0
+        if not portfolio.positions:
+            return total_balance
         
-        except Exception as e:
-            print(f"Произошла ошибка: {e}")
+        for position in portfolio.positions:
+            current_price = position.current_price
+            quantity = position.quantity.units
+            
+            if current_price:
+                market_value = current_price.units + current_price.nano / 1e9
+                position_value = market_value * quantity
+                total_balance += position_value
+        
+        return total_balance
 
-# Вызов функции
-get_account_balance(TOKEN)
+    def print_portfolio_changes(self, portfolio):
+        """Вывод изменений цен бумаг в виде таблицы."""
+        print("\nИзменения цен бумаг:")
+        print(f"{'Название актива':<25} {'Стоимость покупки':<20} {'Текущая стоимость':<20} {'Разница':<15}")
+        print("-" * 80)
+
+        for position in portfolio.positions:
+            figi = position.figi
+            quantity = position.quantity.units
+            current_price = position.current_price
+            average_position_price = position.average_position_price  # Средняя цена покупки
+
+            if current_price and quantity > 0:
+                market_value = current_price.units + current_price.nano / 1e9
+                price_difference = market_value - (average_position_price.units + average_position_price.nano / 1e9)
+
+                print(f"{figi:<25} {average_position_price.units + average_position_price.nano / 1e9:<20.2f} "
+                      f"{market_value:<20.2f} {price_difference:<15.2f}")
+            else:
+                print(f"Нет текущей цены для актива {figi}.")
+
+    def display_account_balances(self):
+        """Отображение балансов всех счетов и изменений цен активов."""
+        accounts = self.get_accounts()
+        
+        if not accounts:
+            print("Счета не найдены.")
+            return
+        
+        for account in accounts:
+            print(f"\nСчет: {account.id}, тип: {account.type}")
+            portfolio = self.get_portfolio(account.id)
+            total_balance = self.calculate_balance(portfolio)
+            self.total_balance += total_balance
+            
+            print(f"Баланс счета {account.id}: {total_balance:.2f} RUB")
+            self.print_portfolio_changes(portfolio)
+
+        print(f"\nОбщая сумма по всем счетам: {self.total_balance:.2f} RUB")
+
+
+# Создание экземпляра AccountManager и вывод балансов
+account_manager = AccountManager(TOKEN)
+account_manager.display_account_balances()
