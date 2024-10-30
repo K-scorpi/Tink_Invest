@@ -1,5 +1,8 @@
-from tinkoff.invest import Client
+import asyncio
+from tinkoff.invest import AsyncClient
 from sec import token
+from tabulate import tabulate  # Импортируем tabulate
+from colorama import Fore, Style  # Импортируем colorama
 
 TOKEN = token
 
@@ -8,20 +11,20 @@ class AccountManager:
         self.token = token
         self.total_balance = 0.0
 
-    def get_accounts(self):
-        """Получение списка счетов."""
-        with Client(self.token) as client:
-            accounts = client.users.get_accounts().accounts
-            return accounts
+    async def get_accounts(self):
+        """Получение списка счетов асинхронно."""
+        async with AsyncClient(self.token) as client:
+            accounts = await client.users.get_accounts()
+            return accounts.accounts
 
-    def get_portfolio(self, account_id):
-        """Получение портфеля для конкретного счета."""
-        with Client(self.token) as client:
-            portfolio = client.operations.get_portfolio(account_id=account_id)
+    async def get_portfolio(self, account_id):
+        """Получение портфеля для конкретного счета асинхронно."""
+        async with AsyncClient(self.token) as client:
+            portfolio = await client.operations.get_portfolio(account_id=account_id)
             return portfolio
 
-    def calculate_balance(self, portfolio):
-        """Подсчет общего баланса по портфелю."""
+    async def calculate_balance(self, portfolio):
+        """Подсчет общего баланса по портфелю асинхронно."""
         total_balance = 0.0
         if not portfolio.positions:
             return total_balance
@@ -37,11 +40,10 @@ class AccountManager:
         
         return total_balance
 
-    def print_portfolio_changes(self, portfolio):
-        """Вывод изменений цен бумаг в виде таблицы."""
-        print("\nИзменения цен бумаг:")
-        print(f"{'Название актива':<25} {'Стоимость покупки':<20} {'Текущая стоимость':<20} {'Разница':<15}")
-        print("-" * 80)
+    async def print_portfolio_changes(self, portfolio):
+        """Вывод изменений цен бумаг в виде таблицы асинхронно."""
+        headers = ['Название актива', 'Стоимость покупки', 'Текущая стоимость', 'Разница']
+        table = []
 
         for position in portfolio.positions:
             figi = position.figi
@@ -53,14 +55,31 @@ class AccountManager:
                 market_value = current_price.units + current_price.nano / 1e9
                 price_difference = market_value - (average_position_price.units + average_position_price.nano / 1e9)
 
-                print(f"{figi:<25} {average_position_price.units + average_position_price.nano / 1e9:<20.2f} "
-                      f"{market_value:<20.2f} {price_difference:<15.2f}")
+                # Устанавливаем цвет в зависимости от разницы
+                if price_difference > 0:
+                    color = Fore.GREEN
+                elif price_difference < 0:
+                    color = Fore.RED
+                else:
+                    color = Fore.YELLOW  # Для нейтрального значения
+
+                # Добавляем данные в таблицу с цветами
+                table.append([
+                    f"{figi}{Style.RESET_ALL}",  # Сброс цвета после использования
+                    f"{average_position_price.units + average_position_price.nano / 1e9:.2f}",
+                    f"{market_value:.2f}",
+                    f"{color}{price_difference:.2f}{Style.RESET_ALL}"  # Цвет для разницы
+                ])
             else:
                 print(f"Нет текущей цены для актива {figi}.")
 
-    def display_account_balances(self):
-        """Отображение балансов всех счетов и изменений цен активов."""
-        accounts = self.get_accounts()
+        # Вывод таблицы
+        print("\nИзменения цен бумаг:")
+        print(tabulate(table, headers, tablefmt="grid"))  # Используем tabulate для форматирования
+
+    async def display_account_balances(self):
+        """Отображение балансов всех счетов и изменений цен активов асинхронно."""
+        accounts = await self.get_accounts()
         
         if not accounts:
             print("Счета не найдены.")
@@ -68,16 +87,20 @@ class AccountManager:
         
         for account in accounts:
             print(f"\nСчет: {account.id}, тип: {account.type}")
-            portfolio = self.get_portfolio(account.id)
-            total_balance = self.calculate_balance(portfolio)
+            portfolio = await self.get_portfolio(account.id)
+            total_balance = await self.calculate_balance(portfolio)
             self.total_balance += total_balance
             
             print(f"Баланс счета {account.id}: {total_balance:.2f} RUB")
-            self.print_portfolio_changes(portfolio)
+            await self.print_portfolio_changes(portfolio)
 
         print(f"\nОбщая сумма по всем счетам: {self.total_balance:.2f} RUB")
 
+# Запуск асинхронной функции
+async def main():
+    account_manager = AccountManager(TOKEN)
+    await account_manager.display_account_balances()
 
-# Создание экземпляра AccountManager и вывод балансов
-account_manager = AccountManager(TOKEN)
-account_manager.display_account_balances()
+# Запуск программы
+if __name__ == "__main__":
+    asyncio.run(main())
